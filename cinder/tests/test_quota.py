@@ -33,15 +33,25 @@ from cinder import volume
 
 
 FLAGS = flags.FLAGS
+QUOTAS = quota.QUOTAS
 
 
 class QuotaIntegrationTestCase(test.TestCase):
 
     def setUp(self):
         super(QuotaIntegrationTestCase, self).setUp()
+        self.volume_type_name = FLAGS.default_volume_type
+        self.volume_type = db.volume_type_create(
+            context.get_admin_context(),
+            dict(name=self.volume_type_name))
+
         self.flags(quota_volumes=2,
                    quota_snapshots=2,
-                   quota_gigabytes=20)
+                   quota_gigabytes=20,
+                   quota_volume_types=[self.volume_type_name])
+
+        # Reload these, since we changed flags.
+        QUOTAS.load_volume_type_resources()
 
         # Apparently needed by the RPC tests...
         #self.network = self.start_service('network')
@@ -59,16 +69,19 @@ class QuotaIntegrationTestCase(test.TestCase):
         self.stubs.Set(rpc, 'call', rpc_call_wrapper)
 
     def tearDown(self):
+        self.flags()
+        QUOTAS.load_volume_type_resources()
         super(QuotaIntegrationTestCase, self).tearDown()
         cinder.tests.image.fake.FakeImageService_reset()
 
-    def _create_volume(self, size=10):
+    def _create_volume(self, size=1):
         """Create a test volume."""
         vol = {}
         vol['user_id'] = self.user_id
         vol['project_id'] = self.project_id
         vol['size'] = size
         vol['status'] = 'available'
+        vol['volume_type_id'] = self.volume_type['id']
         return db.volume_create(self.context, vol)
 
     def _create_snapshot(self, volume):
@@ -85,19 +98,56 @@ class QuotaIntegrationTestCase(test.TestCase):
         for i in range(FLAGS.quota_volumes):
             vol_ref = self._create_volume()
             volume_ids.append(vol_ref['id'])
-        self.assertRaises(exception.QuotaError,
+        self.assertRaises(exception.VolumeLimitExceeded,
                           volume.API().create,
-                          self.context, 10, '', '', None)
+                          self.context, 1, '', '',
+                          volume_type=self.volume_type)
         for volume_id in volume_ids:
             db.volume_destroy(self.context, volume_id)
+
+    def test_too_many_volumes_of_type(self):
+        flag = 'quota_volumes_%s' % self.volume_type_name
+        flag_args = {
+            'quota_volumes': 2000,
+            'quota_gigabytes': 2000,
+            'quota_volume_types': [self.volume_type_name],
+            flag: 1,
+        }
+        self.flags(**flag_args)
+        QUOTAS.load_volume_type_resources()
+        vol_ref = self._create_volume()
+        self.assertRaises(exception.VolumeLimitExceeded,
+                          volume.API().create,
+                          self.context, 1, '', '',
+                          volume_type=self.volume_type)
+        db.volume_destroy(self.context, vol_ref['id'])
+
+    def test_too_many_snapshots_of_type(self):
+        flag = 'quota_snapshots_%s' % self.volume_type_name
+        flag_args = {
+            'quota_volumes': 2000,
+            'quota_gigabytes': 2000,
+            'quota_volume_types': [self.volume_type_name],
+            flag: 1,
+        }
+        self.flags(**flag_args)
+        QUOTAS.load_volume_type_resources()
+        vol_ref = self._create_volume()
+        snap_ref = self._create_snapshot(vol_ref)
+        self.assertRaises(exception.SnapshotLimitExceeded,
+                          volume.API().create_snapshot,
+                          self.context, vol_ref, '', '')
+        db.snapshot_destroy(self.context, snap_ref['id'])
+        db.volume_destroy(self.context, vol_ref['id'])
 
     def test_too_many_gigabytes(self):
         volume_ids = []
         vol_ref = self._create_volume(size=20)
         volume_ids.append(vol_ref['id'])
-        self.assertRaises(exception.QuotaError,
+        self.assertRaises(exception.VolumeSizeExceedsAvailableQuota,
                           volume.API().create,
-                          self.context, 10, '', '', None)
+                          self.context, 1, '', '',
+                          volume_type=self.volume_type)
         for volume_id in volume_ids:
             db.volume_destroy(self.context, volume_id)
 
@@ -129,8 +179,6 @@ class QuotaIntegrationTestCase(test.TestCase):
         self.assertEqual(reservations.get('gigabytes'), None)
 
         # Make sure the snapshot volume_size isn't included in usage.
-        vol_type = db.volume_type_create(self.context,
-                                         dict(name=FLAGS.default_volume_type))
         vol_ref2 = volume.API().create(self.context, 10, '', '')
         usages = db.quota_usage_get_all_by_project(self.context,
                                                    self.project_id)
@@ -140,7 +188,23 @@ class QuotaIntegrationTestCase(test.TestCase):
         db.snapshot_destroy(self.context, snap_ref2['id'])
         db.volume_destroy(self.context, vol_ref['id'])
         db.volume_destroy(self.context, vol_ref2['id'])
-        db.volume_type_destroy(self.context, vol_type['id'])
+
+    def test_too_many_gigabytes_of_type(self):
+        flag = 'quota_gigabytes_%s' % self.volume_type_name
+        flag_args = {
+            'quota_volumes': 2000,
+            'quota_gigabytes': 2000,
+            'quota_volume_types': [self.volume_type_name],
+            flag: 10,
+        }
+        self.flags(**flag_args)
+        QUOTAS.load_volume_type_resources()
+        vol_ref = self._create_volume(size=10)
+        self.assertRaises(exception.VolumeSizeExceedsAvailableQuota,
+                          volume.API().create,
+                          self.context, 1, '', '',
+                          volume_type=self.volume_type)
+        db.volume_destroy(self.context, vol_ref['id'])
 
 
 class FakeContext(object):
@@ -306,6 +370,19 @@ class BaseResourceTestCase(test.TestCase):
                                      quota_class='override_class')
 
         self.assertEqual(quota_value, 20)
+
+
+class VolumeTypeResourceTestCase(test.TestCase):
+    def test_name_and_flag(self):
+        volume_type_name = 'foo'
+        self.flags(quota_volume_types=[volume_type_name])
+        QUOTAS.load_volume_type_resources()
+
+        resource = quota.VolumeTypeResource('volumes', volume_type_name)
+
+        self.assertEqual(resource.name, 'volumes_%s' % volume_type_name)
+        self.assertEqual(resource.flag, 'quota_volumes_%s' % volume_type_name)
+        self.assertEqual(resource.default, -1)
 
 
 class QuotaEngineTestCase(test.TestCase):
