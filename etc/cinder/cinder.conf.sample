@@ -250,6 +250,8 @@
 # default driver to use for quota checks (string value)
 #quota_driver=cinder.quota.DbQuotaDriver
 
+# volume types with specific quotas (list value)
+#quota_volume_types=
 
 #
 # Options defined in cinder.service
@@ -1170,4 +1172,4 @@
 #volume_driver=cinder.volume.driver.FakeISCSIDriver
 
 
-# Total option count: 255
+# Total option count: 256

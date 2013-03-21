@@ -53,7 +53,11 @@ quota_opts = [
                help='number of seconds between subsequent usage refreshes'),
     cfg.StrOpt('quota_driver',
                default='cinder.quota.DbQuotaDriver',
-               help='default driver to use for quota checks'), ]
+               help='default driver to use for quota checks'),
+    cfg.ListOpt('quota_volume_types',
+               default=[],
+               help='Volume types with specific quotas'),
+    ]
 
 FLAGS = flags.FLAGS
 FLAGS.register_opts(quota_opts)
@@ -485,6 +489,51 @@ class ReservableResource(BaseResource):
         self.sync = sync
 
 
+class VolumeTypeResource(ReservableResource):
+    """ReservableResource grouped by volume type."""
+
+    def __init__(self, part_name, volume_type_name):
+        """ Init. """
+        if part_name == 'snapshots':
+            def _sync(context, project_id, session):
+                (snapshots, gigs) = db.snapshot_data_get_for_project(
+                    context,
+                    project_id,
+                    volume_type_name=self.volume_type_name,
+                    session=session)
+                return {'snapshots_%s' % self.volume_type_name: snapshots}
+        elif part_name == 'volumes':
+            def _sync(context, project_id, session):
+                (volumes, gigs) = db.volume_data_get_for_project(
+                    context,
+                    project_id,
+                    volume_type_name=self.volume_type_name,
+                    session=session)
+                return {'volumes_%s' % self.volume_type_name: volumes}
+        elif part_name == 'gigabytes':
+            def _sync(context, project_id, session):
+                key = 'gigabytes_%s' % self.volume_type_name
+                (_junk, vol_gigs) = db.volume_data_get_for_project(
+                    context,
+                    project_id,
+                    volume_type_name=self.volume_type_name,
+                    session=session)
+                if FLAGS.no_snapshot_gb_quota:
+                    return {key: vol_gigs}
+
+                (_junk, snap_gigs) = db.snapshot_data_get_for_project(context,
+                                      project_id,
+                                      volume_type_name=self.volume_type_name,
+                                      session=session)
+                return {key: vol_gigs + snap_gigs}
+
+        name = "%s_%s" % (part_name, volume_type_name)
+        flag = "quota_%s" % name
+        super(VolumeTypeResource, self).__init__(name, _sync, flag)
+        self.volume_type_name = volume_type_name
+
+
+
 class AbsoluteResource(BaseResource):
     """Describe a non-reservable resource."""
 
@@ -769,6 +818,36 @@ class QuotaEngine(object):
 
         self._driver.expire(context)
 
+    def add_volume_type_opts(self, context, opts, volume_type_id):
+        if not volume_type_id:
+            return
+        volume_type = db.volume_type_get(context, volume_type_id)
+        if volume_type['name'] not in FLAGS.quota_volume_types:
+            return
+        for quota in ('volumes', 'gigabytes', 'snapshots'):
+            if quota in opts:
+                vtype_quota = "%s_%s" % (quota, volume_type['name'])
+                opts[vtype_quota] = opts[quota]
+
+    def load_volume_type_resources(self):
+        quota_volume_types = FLAGS.quota_volume_types
+        if quota_volume_types:
+            LOG.info("quota_volume_types: %s" % quota_volume_types)
+            def build_opt(opt_name, volume_type_name, default=-1):
+                return cfg.IntOpt(
+                    opt_name,
+                    default=default,
+                    help='resource limit for %s' % volume_type_name)
+
+            for volume_type_name in quota_volume_types:
+                for part_name in ('volumes', 'gigabytes', 'snapshots'):
+                    resource_name = '%s_%s' % (part_name, volume_type_name)
+                    opt_name = 'quota_%s' % resource_name
+                    FLAGS.register_opt(build_opt(opt_name, volume_type_name))
+                    resource = VolumeTypeResource(part_name, volume_type_name)
+                    self.register_resource(resource)
+                    LOG.info('volume quota: %s, default: %s' % (opt_name, resource.default))
+
     @property
     def resources(self):
         return sorted(self._resources.keys())
@@ -811,3 +890,4 @@ resources = [
 
 
 QUOTAS.register_resources(resources)
+QUOTAS.load_volume_type_resources()

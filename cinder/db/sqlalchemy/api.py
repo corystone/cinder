@@ -960,14 +960,20 @@ def volume_data_get_for_host(context, host, session=None):
 
 
 @require_admin_context
-def volume_data_get_for_project(context, project_id, session=None):
-    result = model_query(context,
-                         func.count(models.Volume.id),
-                         func.sum(models.Volume.size),
-                         read_deleted="no",
-                         session=session).\
-        filter_by(project_id=project_id).\
-        first()
+def volume_data_get_for_project(context, project_id, volume_type_name=None,
+                                session=None):
+    query = model_query(context,
+                        func.count(models.Volume.id),
+                        func.sum(models.Volume.size),
+                        read_deleted="no",
+                        session=session).\
+        filter_by(project_id=project_id)
+
+    if volume_type_name:
+        query = query.join('volume_type').\
+                filter(models.VolumeTypes.name==volume_type_name)
+
+    result = query.first()
 
     # NOTE(vish): convert None to 0
     return (result[0] or 0, result[1] or 0)
@@ -1249,15 +1255,24 @@ def snapshot_get_all_by_project(context, project_id):
 
 
 @require_context
-def snapshot_data_get_for_project(context, project_id, session=None):
+def snapshot_data_get_for_project(context, project_id, volume_type_name=None,
+                                  session=None):
     authorize_project_context(context, project_id)
-    result = model_query(context,
+    query = model_query(context,
                          func.count(models.Snapshot.id),
                          func.sum(models.Snapshot.volume_size),
                          read_deleted="no",
                          session=session).\
-        filter_by(project_id=project_id).\
-        first()
+        filter_by(project_id=project_id)
+
+    if volume_type_name:
+        query = query.join('volume')
+        query = query.join(
+            (models.VolumeTypes,
+             models.Volume.volume_type_id==models.VolumeTypes.id)).\
+        filter(models.VolumeTypes.name==volume_type_name)
+
+    result = query.first()
 
     # NOTE(vish): convert None to 0
     return (result[0] or 0, result[1] or 0)

@@ -150,8 +150,19 @@ class API(base.Base):
                 msg = _('Size of specified image is larger than volume size.')
                 raise exception.InvalidInput(reason=msg)
 
+        if not volume_type and not source_volume:
+            volume_type = volume_types.get_default_volume_type()
+
+        if not volume_type and source_volume:
+            volume_type_id = source_volume['volume_type_id']
+        else:
+            volume_type_id = volume_type.get('id')
+
         try:
-            reservations = QUOTAS.reserve(context, volumes=1, gigabytes=size)
+            reserve_opts = {'volumes': 1, 'gigabytes': size}
+            QUOTAS.add_volume_type_opts(context, reserve_opts, volume_type_id)
+            LOG.info("reserve_opts: %s" % reserve_opts)
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as e:
             overs = e.kwargs['overs']
             usages = e.kwargs['usages']
@@ -160,33 +171,26 @@ class API(base.Base):
             def _consumed(name):
                 return (usages[name]['reserved'] + usages[name]['in_use'])
 
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "%(s_size)sG volume (%(d_consumed)dG of %(d_quota)dG "
-                        "already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                's_size': size,
-                                'd_consumed': _consumed('gigabytes'),
-                                'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
-            elif 'volumes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "volume (%(d_consumed)d volumes"
-                        "already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                'd_consumed': _consumed('volumes')})
-                raise exception.VolumeLimitExceeded(allowed=quotas['volumes'])
+            for over in overs:
+                if 'gigabytes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "%(s_size)sG volume (%(d_consumed)dG of %(d_quota)dG "
+                            "already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    's_size': size,
+                                    'd_consumed': _consumed(over),
+                                    'd_quota': quotas[over]})
+                    raise exception.VolumeSizeExceedsAvailableQuota()
+                elif 'volumes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "volume (%(d_consumed)d volumes"
+                            "already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    'd_consumed': _consumed(over)})
+                    raise exception.VolumeLimitExceeded(allowed=quotas[over])
 
         if availability_zone is None:
             availability_zone = FLAGS.storage_availability_zone
-
-        if not volume_type and not source_volume:
-            volume_type = volume_types.get_default_volume_type()
-
-        if not volume_type and source_volume:
-            volume_type_id = source_volume['volume_type_id']
-        else:
-            volume_type_id = volume_type.get('id')
 
         self._check_metadata_properties(context, metadata)
         options = {'size': size,
@@ -295,10 +299,13 @@ class API(base.Base):
             # NOTE(vish): scheduling failed, so delete it
             # Note(zhiteng): update volume quota reservation
             try:
+                reserve_opts = {'volumes': -1, 'gigabytes': -volume['size']}
+                QUOTAS.add_volume_type_opts(context,
+                                            reserve_opts,
+                                            volume['volume_type_id'])
                 reservations = QUOTAS.reserve(context,
                                               project_id=project_id,
-                                              volumes=-1,
-                                              gigabytes=-volume['size'])
+                                              **reserve_opts)
             except Exception:
                 reservations = None
                 LOG.exception(_("Failed to update quota for deleting volume"))
@@ -517,10 +524,13 @@ class API(base.Base):
 
         try:
             if FLAGS.no_snapshot_gb_quota:
-                reservations = QUOTAS.reserve(context, snapshots=1)
+                reserve_opts = {'snapshots': 1}
             else:
-                reservations = QUOTAS.reserve(context, snapshots=1,
-                                              gigabytes=volume['size'])
+                reserve_opts = {'snapshots': 1, 'gigabytes': volume['size']}
+            QUOTAS.add_volume_type_opts(context,
+                                        reserve_opts,
+                                        volume.get('volume_type_id'))
+            reservations = QUOTAS.reserve(context, **reserve_opts)
         except exception.OverQuota as e:
             overs = e.kwargs['overs']
             usages = e.kwargs['usages']
@@ -529,24 +539,25 @@ class API(base.Base):
             def _consumed(name):
                 return (usages[name]['reserved'] + usages[name]['in_use'])
 
-            if 'gigabytes' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "%(s_size)sG snapshot (%(d_consumed)dG of "
-                        "%(d_quota)dG already consumed)")
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                's_size': volume['size'],
-                                'd_consumed': _consumed('gigabytes'),
-                                'd_quota': quotas['gigabytes']})
-                raise exception.VolumeSizeExceedsAvailableQuota()
-            elif 'snapshots' in overs:
-                msg = _("Quota exceeded for %(s_pid)s, tried to create "
-                        "snapshot (%(d_consumed)d snapshots "
-                        "already consumed)")
+            for over in overs:
+                if 'gigabytes' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "%(s_size)sG snapshot (%(d_consumed)dG of "
+                            "%(d_quota)dG already consumed)")
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    's_size': volume['size'],
+                                    'd_consumed': _consumed(over),
+                                    'd_quota': quotas[over]})
+                    raise exception.VolumeSizeExceedsAvailableQuota()
+                elif 'snapshots' in over:
+                    msg = _("Quota exceeded for %(s_pid)s, tried to create "
+                            "snapshot (%(d_consumed)d snapshots "
+                            "already consumed)")
 
-                LOG.warn(msg % {'s_pid': context.project_id,
-                                'd_consumed': _consumed('snapshots')})
-                raise exception.SnapshotLimitExceeded(
-                    allowed=quotas['snapshots'])
+                    LOG.warn(msg % {'s_pid': context.project_id,
+                                    'd_consumed': _consumed(over)})
+                    raise exception.SnapshotLimitExceeded(
+                        allowed=quotas[over])
 
         self._check_metadata_properties(context, metadata)
         options = {'volume_id': volume['id'],
