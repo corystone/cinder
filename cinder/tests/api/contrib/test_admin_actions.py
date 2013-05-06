@@ -346,3 +346,23 @@ class AdminActionsTest(test.TestCase):
                           mountpoint)
         # cleanup
         svc.stop()
+
+    def test_update_progress(self):
+        ctx = context.RequestContext('admin', 'fake', True)
+        # snapshot in 'error_deleting'
+        volume = db.volume_create(ctx, {})
+        snapshot = db.snapshot_create(ctx, {'volume_id': volume['id']})
+        req = webob.Request.blank('/v2/fake/snapshots/%s/action' %
+                                  snapshot['id'])
+        req.method = 'POST'
+        req.headers['content-type'] = 'application/json'
+        # request status of 'error'
+        req.body = jsonutils.dumps({'os-update_progress': 'progress!'})
+        # attach admin context to request
+        req.environ['cinder.context'] = ctx
+        resp = req.get_response(app())
+        # request is accepted
+        self.assertEquals(resp.status_int, 202)
+        snapshot = db.snapshot_get(ctx, snapshot['id'])
+        # status changed to 'error'
+        self.assertEquals(snapshot['progress'], 'progress!')

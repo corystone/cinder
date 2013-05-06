@@ -155,6 +155,21 @@ class SnapshotAdminController(AdminController):
     def _delete(self, *args, **kwargs):
         return self.volume_api.delete_snapshot(*args, **kwargs)
 
+    @wsgi.action('os-update_progress')
+    def _update_progress(self, req, id, body):
+        """Update snapshot progress."""
+        context = req.environ['cinder.context']
+        self.authorize(context, 'update_progress')
+        progress = body['os-update_progress']
+        msg = _("Updating %(resource)s '%(id)s' with '%(progress)r'")
+        LOG.debug(msg, {'resource': self.resource_name, 'id': id,
+                        'progress': progress})
+        try:
+            self._update(context, id, {'progress': progress})
+        except exception.NotFound, e:
+            raise exc.HTTPNotFound(e)
+        return webob.Response(status_int=202)
+
 
 class Admin_actions(extensions.ExtensionDescriptor):
     """Enable admin actions."""
