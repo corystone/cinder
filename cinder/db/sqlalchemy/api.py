@@ -559,7 +559,7 @@ def quota_default_get(context, resource, session=None):
 
 
 @require_admin_context
-def quota_default_create(context, class_name, resource, limit):
+def quota_default_create(context, resource, limit):
     quota_default_ref = models.QuotaDefault()
     quota_default_ref.resource = resource
     quota_default_ref.hard_limit = limit
@@ -568,7 +568,7 @@ def quota_default_create(context, class_name, resource, limit):
 
 
 @require_admin_context
-def quota_default_update(context, class_name, resource, limit):
+def quota_default_update(context, resource, limit):
     session = get_session()
     with session.begin():
         quota_default_ref = quota_default_get(context, resource,
@@ -578,7 +578,7 @@ def quota_default_update(context, class_name, resource, limit):
 
 
 @require_admin_context
-def quota_default_destroy(context, class_name, resource):
+def quota_default_destroy(context, resource):
     session = get_session()
     with session.begin():
         quota_default_ref = quota_default_get(context, resource,
