@@ -257,6 +257,21 @@ class QuotaClass(BASE, CinderBase):
     hard_limit = Column(Integer, nullable=True)
 
 
+class QuotaDefault(BASE, CinderBase):
+    """Represents the default value for a quota resource.
+
+    This table is queried in the default property. It is preferred over
+    any entries in the config file. If a row does not exist, the config
+    option will be used.
+    """
+
+    __tablename__ = 'quota_defaults'
+    id = Column(Integer, primary_key=True)
+
+    resource = Column(String(255))
+    hard_limit = Column(Integer, nullable=True)
+
+
 class QuotaUsage(BASE, CinderBase):
     """Represents the current usage for a given resource."""
 

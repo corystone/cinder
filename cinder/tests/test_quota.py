@@ -39,6 +39,11 @@ class QuotaIntegrationTestCase(test.TestCase):
 
     def setUp(self):
         super(QuotaIntegrationTestCase, self).setUp()
+        self.volume_type_name = FLAGS.default_volume_type
+        self.volume_type = db.volume_type_create(
+            context.get_admin_context(),
+            dict(name=self.volume_type_name))
+
         self.flags(quota_volumes=2,
                    quota_snapshots=2,
                    quota_gigabytes=20)
@@ -59,6 +64,8 @@ class QuotaIntegrationTestCase(test.TestCase):
         self.stubs.Set(rpc, 'call', rpc_call_wrapper)
 
     def tearDown(self):
+        db.volume_type_destroy(context.get_admin_context(),
+                               self.volume_type['id'])
         super(QuotaIntegrationTestCase, self).tearDown()
         cinder.tests.image.fake.FakeImageService_reset()
 
@@ -129,8 +136,6 @@ class QuotaIntegrationTestCase(test.TestCase):
         self.assertEqual(reservations.get('gigabytes'), None)
 
         # Make sure the snapshot volume_size isn't included in usage.
-        vol_type = db.volume_type_create(self.context,
-                                         dict(name=FLAGS.default_volume_type))
         vol_ref2 = volume.API().create(self.context, 10, '', '')
         usages = db.quota_usage_get_all_by_project(self.context,
                                                    self.project_id)
@@ -140,7 +145,19 @@ class QuotaIntegrationTestCase(test.TestCase):
         db.snapshot_destroy(self.context, snap_ref2['id'])
         db.volume_destroy(self.context, vol_ref['id'])
         db.volume_destroy(self.context, vol_ref2['id'])
-        db.volume_type_destroy(self.context, vol_type['id'])
+
+    def test_default_quota(self):
+        self.flags(quota_volumes=2)
+        db.quota_default_create(self.context, 'volumes', 1)
+        vol_ref = self._create_volume()
+        self.assertRaises(exception.QuotaError,
+                          volume.API().create,
+                          self.context, 10, '', '', None)
+        # Delete default quota and should work.
+        db.quota_default_destroy(self.context, 'volumes')
+        vol_ref2 = volume.API().create(self.context, 10, '', '')
+        db.volume_destroy(self.context, vol_ref['id'])
+        db.volume_destroy(self.context, vol_ref2['id'])
 
 
 class FakeContext(object):
@@ -176,6 +193,10 @@ class FakeDriver(object):
             return self.by_class[quota_class][resource]
         except KeyError:
             raise exception.QuotaClassNotFound(class_name=quota_class)
+
+    def get_default(self, context, resource):
+        self.called.append(('get_default', context, resource))
+        return resource.default
 
     def get_defaults(self, context, resources):
         self.called.append(('get_defaults', context, resources))
@@ -664,6 +685,9 @@ class DbQuotaDriverTestCase(test.TestCase):
 
     def test_get_defaults(self):
         # Use our pre-defined resources
+        def fake_dbcall(context, resource):
+            raise exception.QuotaDefaultNotFound(resource=resource)
+        self.stubs.Set(db, 'quota_default_get', fake_dbcall)
         result = self.driver.get_defaults(None, quota.QUOTAS._resources)
 
         self.assertEqual(

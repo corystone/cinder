@@ -38,5 +38,8 @@
     "volume_extension:volume_image_metadata": [],
     "volume_extension:volume_host_attribute": [["rule:admin_api"]],
     "volume_extension:volume_tenant_attribute": [["rule:admin_api"]],
-    "volume_extension:hosts": [["rule:admin_api"]]
+    "volume_extension:hosts": [["rule:admin_api"]],
+    "volume_extension:quota_defaults:show": [],
+    "volume_extension:quota_defaults:update": [["rule:admin_api"]]
+    
 }

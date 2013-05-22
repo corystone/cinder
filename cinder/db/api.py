@@ -634,6 +634,29 @@ def quota_class_destroy_all_by_name(context, class_name):
 ###################
 
 
+def quota_default_create(context, resource, limit):
+    """Create a quota default for the given resource."""
+    return IMPL.quota_default_create(context, resource, limit)
+
+
+def quota_default_get(context, resource):
+    """Retrieve a quota default or raise if it does not exist."""
+    return IMPL.quota_default_get(context, resource)
+
+
+def quota_default_update(context, resource, limit):
+    """Update a quota default or raise if it does not exist."""
+    return IMPL.quota_default_update(context, resource, limit)
+
+
+def quota_default_destroy(context, resource):
+    """Destroy the quota default or raise if it does not exist."""
+    return IMPL.quota_default_destroy(context, resource)
+
+
+###################
+
+
 def quota_usage_create(context, project_id, resource, in_use, reserved,
                        until_refresh):
     """Create a quota usage for the given project and resource."""

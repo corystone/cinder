@@ -66,15 +66,26 @@ class DbQuotaDriver(object):
     database.
     """
 
-    def get_by_project(self, context, project_id, resource):
+    def get_by_project(self, context, project_id, resource_name):
         """Get a specific quota by project."""
 
-        return db.quota_get(context, project_id, resource)
+        return db.quota_get(context, project_id, resource_name)
 
-    def get_by_class(self, context, quota_class, resource):
+    def get_by_class(self, context, quota_class, resource_name):
         """Get a specific quota by quota class."""
 
-        return db.quota_class_get(context, quota_class, resource)
+        return db.quota_class_get(context, quota_class, resource_name)
+
+    def get_default(self, context, resource):
+        """Get a specific default quota for a resource."""
+
+        try:
+            default_ref = db.quota_default_get(context, resource.name)
+            return default_ref.hard_limit
+        except exception.QuotaDefaultNotFound:
+            pass
+
+        return resource.default
 
     def get_defaults(self, context, resources):
         """Given a list of resources, retrieve the default quotas.
@@ -85,7 +96,7 @@ class DbQuotaDriver(object):
 
         quotas = {}
         for resource in resources.values():
-            quotas[resource.name] = resource.default
+            quotas[resource.name] = self.get_default(context, resource)
 
         return quotas
 
@@ -108,8 +119,9 @@ class DbQuotaDriver(object):
         class_quotas = db.quota_class_get_all_by_name(context, quota_class)
         for resource in resources.values():
             if defaults or resource.name in class_quotas:
-                quotas[resource.name] = class_quotas.get(resource.name,
-                                                         resource.default)
+                quotas[resource.name] = class_quotas.get(resource.name)
+                if not quotas[resource.name]:
+                    quotas[resource.name] = self.get_default(context, resource)
 
         return quotas
 
@@ -158,10 +170,11 @@ class DbQuotaDriver(object):
             if not defaults and resource.name not in project_quotas:
                 continue
 
-            quotas[resource.name] = dict(
-                limit=project_quotas.get(resource.name,
-                                         class_quotas.get(resource.name,
-                                                          resource.default)), )
+            limit = project_quotas.get(resource.name,
+                                       class_quotas.get(resource.name))
+            if not limit:
+                limit = self.get_default(context, resource)
+            quotas[resource.name] = {'limit': limit}
 
             # Include usages if desired.  This is optional because one
             # internal consumer of this interface wants to access the
@@ -440,7 +453,7 @@ class BaseResource(object):
                 pass
 
         # OK, return the default
-        return self.default
+        return driver.get_default(context, self)
 
     @property
     def default(self):
@@ -560,15 +573,20 @@ class QuotaEngine(object):
         for resource in resources:
             self.register_resource(resource)
 
-    def get_by_project(self, context, project_id, resource):
+    def get_by_project(self, context, project_id, resource_name):
         """Get a specific quota by project."""
 
-        return self._driver.get_by_project(context, project_id, resource)
+        return self._driver.get_by_project(context, project_id, resource_name)
 
-    def get_by_class(self, context, quota_class, resource):
+    def get_by_class(self, context, quota_class, resource_name):
         """Get a specific quota by quota class."""
 
-        return self._driver.get_by_class(context, quota_class, resource)
+        return self._driver.get_by_class(context, quota_class, resource_name)
+
+    def get_default(self, context, resource):
+        """Get a specific default quota for a resource."""
+
+        return self._driver.get_default(context, resource)
 
     def get_defaults(self, context):
         """Retrieve the default quotas.
