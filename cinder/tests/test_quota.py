@@ -142,6 +142,19 @@ class QuotaIntegrationTestCase(test.TestCase):
         db.volume_destroy(self.context, vol_ref2['id'])
         db.volume_type_destroy(self.context, vol_type['id'])
 
+    def test_default_quota(self):
+        self.flags(quota_volumes=3)
+        db.quota_default_create(self.context, 'volumes', 2)
+        vol_ref = self._create_volume()
+        self.assertRaises(exception.QuotaError,
+                          volume.API().create,
+                          self.context, 10, '', '', None)
+        # Delete default quota and should work.
+        db.quota_default_destroy(self.context, 'volumes')
+        vol_ref2 = volume.API().create(self.context, 10, '', '')
+        db.volume_destroy(self.context, vol_ref['id'])
+        db.volume_destroy(self.context, vol_ref2['id'])
+
 
 class FakeContext(object):
     def __init__(self, project_id, quota_class):
