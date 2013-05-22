@@ -39,6 +39,11 @@ class QuotaIntegrationTestCase(test.TestCase):
 
     def setUp(self):
         super(QuotaIntegrationTestCase, self).setUp()
+        self.volume_type_name = FLAGS.default_volume_type
+        self.volume_type = db.volume_type_create(
+            context.get_admin_context(),
+            dict(name=self.volume_type_name))
+
         self.flags(quota_volumes=2,
                    quota_snapshots=2,
                    quota_gigabytes=20)
