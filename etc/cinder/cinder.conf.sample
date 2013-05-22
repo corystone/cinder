@@ -228,7 +228,6 @@
 # default driver to use for quota checks (string value)
 #quota_driver=cinder.quota.DbQuotaDriver
 
-
 #
 # Options defined in cinder.service
 #
@@ -1352,4 +1351,4 @@
 # Driver to use for volume creation (string value)
 #volume_driver=cinder.volume.drivers.lvm.LVMISCSIDriver
 
-# Total option count: 300
+# Total option count: 299

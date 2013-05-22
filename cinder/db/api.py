@@ -219,10 +219,12 @@ def volume_data_get_for_host(context, host, session=None):
                                          session)
 
 
-def volume_data_get_for_project(context, project_id, session=None):
+def volume_data_get_for_project(context, project_id, volume_type_name=None,
+                                session=None):
     """Get (volume_count, gigabytes) for project."""
     return IMPL.volume_data_get_for_project(context,
                                             project_id,
+                                            volume_type_name,
                                             session)
 
 
@@ -319,10 +321,12 @@ def snapshot_update(context, snapshot_id, values):
     return IMPL.snapshot_update(context, snapshot_id, values)
 
 
-def snapshot_data_get_for_project(context, project_id, session=None):
+def snapshot_data_get_for_project(context, project_id, volume_type_name=None,
+                                  session=None):
     """Get count and gigabytes used for snapshots for specified project."""
     return IMPL.snapshot_data_get_for_project(context,
                                               project_id,
+                                              volume_type_name,
                                               session)
 
 
@@ -638,6 +642,29 @@ def quota_class_destroy(context, class_name, resource):
 def quota_class_destroy_all_by_name(context, class_name):
     """Destroy all quotas associated with a given quota class."""
     return IMPL.quota_class_destroy_all_by_name(context, class_name)
+
+
+###################
+
+
+def quota_default_create(context, resource, limit):
+    """Create a quota default for the given resource."""
+    return IMPL.quota_default_create(context, resource, limit)
+
+
+def quota_default_get(context, resource):
+    """Retrieve a quota default or raise if it does not exist."""
+    return IMPL.quota_default_get(context, resource)
+
+
+def quota_default_update(context, resource, limit):
+    """Update a quota default or raise if it does not exist."""
+    return IMPL.quota_default_update(context, resource, limit)
+
+
+def quota_default_destroy(context, resource):
+    """Destroy the quota default or raise if it does not exist."""
+    return IMPL.quota_default_destroy(context, resource)
 
 
 ###################
