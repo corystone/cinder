@@ -106,9 +106,10 @@ class DbQuotaDriver(object):
         class_quotas = db.quota_class_get_all_by_name(context, quota_class)
         for resource in resources.values():
             if defaults or resource.name in class_quotas:
-                quotas[resource.name] = class_quotas.get(
-                    resource.name,
-                    self.get_default(resource))
+                quotas[resource.name] = class_quotas.get(resource.name)
+                if not quotas[resource.name]
+                    quotas[resource.name] = self.get_default(context,
+                                                             resource))
 
         return quotas
 
@@ -157,12 +158,11 @@ class DbQuotaDriver(object):
             if not defaults and resource.name not in project_quotas:
                 continue
 
-            quotas[resource.name] = dict(
-                limit=project_quotas.get(
-                    resource.name,
-                    class_quotas.get(
-                        resource.name,
-                        self.get_default(resource))), )
+            limit = project_quotas.get(resource.name,
+                                       class_quotas.get(resource.name))
+            if not limit:
+                limit = self.get_default(context, resource)
+            quotas[resource.name] = {'limit': limit}
 
             # Include usages if desired.  This is optional because one
             # internal consumer of this interface wants to access the
