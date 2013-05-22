@@ -76,6 +76,12 @@ class DbQuotaDriver(object):
 
         return db.quota_class_get(context, quota_class, resource)
 
+    def get_default(self, context, resource):
+        """Get a specific default quota for a resource."""
+
+        default_ref = db.quota_default_get(context, resource)
+        return default_ref.hard_limit
+
     def get_defaults(self, context, resources):
         """Given a list of resources, retrieve the default quotas.
 
@@ -85,7 +91,7 @@ class DbQuotaDriver(object):
 
         quotas = {}
         for resource in resources.values():
-            quotas[resource.name] = resource.default
+            quotas[resource.name] = resource.default(context)
 
         return quotas
 
@@ -108,8 +114,9 @@ class DbQuotaDriver(object):
         class_quotas = db.quota_class_get_all_by_name(context, quota_class)
         for resource in resources.values():
             if defaults or resource.name in class_quotas:
-                quotas[resource.name] = class_quotas.get(resource.name,
-                                                         resource.default)
+                quotas[resource.name] = class_quotas.get(
+                    resource.name,
+                    resource.default(context))
 
         return quotas
 
@@ -159,9 +166,11 @@ class DbQuotaDriver(object):
                 continue
 
             quotas[resource.name] = dict(
-                limit=project_quotas.get(resource.name,
-                                         class_quotas.get(resource.name,
-                                                          resource.default)), )
+                limit=project_quotas.get(
+                    resource.name,
+                    class_quotas.get(
+                        resource.name,
+                        resource.default(context))), )
 
             # Include usages if desired.  This is optional because one
             # internal consumer of this interface wants to access the
@@ -440,11 +449,14 @@ class BaseResource(object):
                 pass
 
         # OK, return the default
-        return self.default
+        return self.default(context)
 
-    @property
-    def default(self):
+    def default(self, context):
         """Return the default value of the quota."""
+        try:
+            return driver.get_default(context, self.name)
+        except exception.QuotaDefaultNotFound:
+            pass
 
         return FLAGS[self.flag] if self.flag else -1
 
@@ -569,6 +581,11 @@ class QuotaEngine(object):
         """Get a specific quota by quota class."""
 
         return self._driver.get_by_class(context, quota_class, resource)
+
+    def get_default(self, context, resource):
+        """Get a specific default quota for a resource."""
+
+        return self._driver.get_default(context, resource)
 
     def get_defaults(self, context):
         """Retrieve the default quotas.
