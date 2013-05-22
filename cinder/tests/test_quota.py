@@ -195,6 +195,10 @@ class FakeDriver(object):
         except KeyError:
             raise exception.QuotaClassNotFound(class_name=quota_class)
 
+    def get_default(self, context, resource):
+        self.called.append(('get_default', context, resource))
+        return resource.default
+
     def get_defaults(self, context, resources):
         self.called.append(('get_defaults', context, resources))
         return resources
