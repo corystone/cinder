@@ -87,6 +87,19 @@ class DbQuotaDriver(object):
 
         return resource.default
 
+    def get_defaults(self, context, resources):
+        """Given a list of resources, retrieve the default quotas.
+
+        :param context: The request context, for access checks.
+        :param resources: A dictionary of the registered resources.
+        """
+
+        quotas = {}
+        for resource in resources.values():
+            quotas[resource.name] = self.get_default(context, resource)
+
+        return quotas
+
     def get_class_quotas(self, context, resources, quota_class,
                          defaults=True):
         """
@@ -107,9 +120,8 @@ class DbQuotaDriver(object):
         for resource in resources.values():
             if defaults or resource.name in class_quotas:
                 quotas[resource.name] = class_quotas.get(resource.name)
-                if not quotas[resource.name]
-                    quotas[resource.name] = self.get_default(context,
-                                                             resource))
+                if not quotas[resource.name]:
+                    quotas[resource.name] = self.get_default(context, resource)
 
         return quotas
 
@@ -581,11 +593,7 @@ class QuotaEngine(object):
         :param context: The request context, for access checks.
         """
 
-        quotas = {}
-        for resource in resources.values():
-            quotas[resource.name] = self.get_default(context, resource)
-
-        return quotas
+        return self._driver.get_defaults(context, self._resources)
 
     def get_class_quotas(self, context, quota_class, defaults=True):
         """Retrieve the quotas for the given quota class.
