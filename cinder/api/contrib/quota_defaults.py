@@ -61,7 +61,7 @@ class QuotaDefaultsController(object):
         except exception.QuotaDefaultNotFound:
             msg = _("Resource not found: %s") % resource
             raise webob.exc.HTTPNotFound(explanation=msg)
-        except exception.AdminRequired:
+        except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
         return dict(resource=resource, limit=default.hard_limit)
@@ -73,7 +73,7 @@ class QuotaDefaultsController(object):
         resource = id
         limit = self._validate_limit(body['limit'])
         try:
-            db.quota_default_set(context, resource, limit)
+            db.quota_default_update(context, resource, limit)
         except exception.QuotaDefaultNotFound:
             db.quota_default_create(context, resource, limit)
         except exception.AdminRequired:
