@@ -81,7 +81,7 @@ class QuotaDefaultsController(object):
         return dict(id=resource, limit=default)
 
 
-class Quota_classes(extensions.ExtensionDescriptor):
+class Quota_defaults(extensions.ExtensionDescriptor):
     """Quota default management support"""
 
     name = "QuotaDefaults"
