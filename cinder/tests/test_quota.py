@@ -64,9 +64,9 @@ class QuotaIntegrationTestCase(test.TestCase):
         self.stubs.Set(rpc, 'call', rpc_call_wrapper)
 
     def tearDown(self):
-        super(QuotaIntegrationTestCase, self).tearDown()
         db.volume_type_destroy(context.get_admin_context(),
                                self.volume_type['id'])
+        super(QuotaIntegrationTestCase, self).tearDown()
         cinder.tests.image.fake.FakeImageService_reset()
 
     def _create_volume(self, size=10):
