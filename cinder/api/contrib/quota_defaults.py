@@ -64,7 +64,7 @@ class QuotaDefaultsController(object):
         except exception.AdminRequired:
             raise webob.exc.HTTPForbidden()
 
-        return dict(id=resource, limit=default)
+        return dict(resource=resource, limit=default.hard_limit)
 
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def update(self, req, id, body):
@@ -78,7 +78,8 @@ class QuotaDefaultsController(object):
             db.quota_default_create(context, resource, limit)
         except exception.AdminRequired:
             raise webob.exc.HTTPForbidden()
-        return dict(id=resource, limit=default)
+
+        return dict(resource=resource, limit=limit)
 
 
 class Quota_defaults(extensions.ExtensionDescriptor):
