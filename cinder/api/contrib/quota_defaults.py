@@ -40,6 +40,10 @@ class QuotaDefaultTemplate(xmlutil.TemplateBuilder):
 
 class QuotaDefaultsController(object):
 
+    def authorize(self, context, action_name):
+        action = 'quota_defaults:%s' % action_name
+        extensions.extension_authorizer('volume', action)(context)
+
     def _validate_limit(self, limit_):
         # NOTE: -1 is a flag value for unlimited
         msg = _("Quota limit must be integer -1 or greater.")
@@ -54,7 +58,7 @@ class QuotaDefaultsController(object):
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def show(self, req, id):
         context = req.environ['cinder.context']
-        authorize(context)
+        authorize(context, show)
         resource = id
         try:
             default = db.quota_default_get(context, resource)
@@ -74,7 +78,7 @@ class QuotaDefaultsController(object):
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def update(self, req, id, body):
         context = req.environ['cinder.context']
-        authorize(context)
+        authorize(context, update)
         resource = id
         try:
             quota_default = body['quota_update']
