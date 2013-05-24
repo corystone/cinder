@@ -36,7 +36,7 @@ class QuotaDefaultsTest(test.TestCase):
         nonadmin_ctx = context.RequestContext('nonadmin', 'fake2', False)
         quota_default = db.quota_default_create(admin_ctx, 'volumes', 1)
         req = webob.Request.blank('/v2/fake2/os-quota-defaults/volumes')
-        req.method = 'POST'
+        req.method = 'GET'
         req.headers['content-type'] = 'application/json'
         req.environ['cinder.context'] = nonadmin_ctx
         resp = req.get_response(app())
