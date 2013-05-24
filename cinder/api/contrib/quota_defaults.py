@@ -32,7 +32,7 @@ authorize = extensions.extension_authorizer('volume', 'quota_defaults')
 class QuotaDefaultTemplate(xmlutil.TemplateBuilder):
     def construct(self):
         root = xmlutil.TemplateElement('quota_default')
-        root.set('id')
+        root.set('resource')
         root.set('limit')
 
         return xmlutil.MasterTemplate(root, 1)
@@ -64,14 +64,25 @@ class QuotaDefaultsController(object):
         except exception.NotAuthorized:
             raise webob.exc.HTTPForbidden()
 
-        return dict(resource=resource, limit=default.hard_limit)
+        return {
+            'quota_default': {
+                'resource': resource,
+                'limit': default.hard_limit
+            }
+        }
 
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def update(self, req, id, body):
         context = req.environ['cinder.context']
         authorize(context)
         resource = id
-        limit = self._validate_limit(body['limit'])
+        try:
+            quota_default = body['quota_update']
+        except KeyError:
+            msg = _("Incorrect request body format")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
+        limit = self._validate_limit(quota_default.get('limit'))
         try:
             db.quota_default_update(context, resource, limit)
         except exception.QuotaDefaultNotFound:
@@ -79,7 +90,12 @@ class QuotaDefaultsController(object):
         except exception.AdminRequired:
             raise webob.exc.HTTPForbidden()
 
-        return dict(resource=resource, limit=limit)
+        return {
+            'quota_default': {
+                'resource': resource,
+                'limit': limit
+            }
+        }
 
 
 class Quota_defaults(extensions.ExtensionDescriptor):

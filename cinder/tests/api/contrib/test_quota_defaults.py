@@ -42,4 +42,5 @@ class QuotaDefaultsTest(test.TestCase):
         resp = req.get_response(app())
         self.assertEquals(resp.status_int, 202)
         body = jsonutils.loads(resp.body)
-        self.assertEquals(body, {'resource': 'volumes', 'limit': 1})
+        self.assertEquals(body['quota_default'],
+                          {'resource': 'volumes', 'limit': 1})
