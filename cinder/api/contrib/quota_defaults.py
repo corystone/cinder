@@ -26,9 +26,6 @@ from cinder import quota
 QUOTAS = quota.QUOTAS
 
 
-authorize = extensions.extension_authorizer('volume', 'quota_defaults')
-
-
 class QuotaDefaultTemplate(xmlutil.TemplateBuilder):
     def construct(self):
         root = xmlutil.TemplateElement('quota_default')
@@ -54,11 +51,12 @@ class QuotaDefaultsController(object):
 
         if limit < -1:
             raise webob.exc.HTTPBadRequest(explanation=msg)
+        return limit
 
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def show(self, req, id):
         context = req.environ['cinder.context']
-        authorize(context, show)
+        self.authorize(context, 'show')
         resource = id
         try:
             default = db.quota_default_get(context, resource)
@@ -78,10 +76,11 @@ class QuotaDefaultsController(object):
     @wsgi.serializers(xml=QuotaDefaultTemplate)
     def update(self, req, id, body):
         context = req.environ['cinder.context']
-        authorize(context, update)
+        self.authorize(context, 'update')
         resource = id
         try:
-            quota_default = body['quota_update']
+            print body
+            quota_default = body['quota_default']
         except KeyError:
             msg = _("Incorrect request body format")
             raise webob.exc.HTTPBadRequest(explanation=msg)

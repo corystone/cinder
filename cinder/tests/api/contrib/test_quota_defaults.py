@@ -40,7 +40,42 @@ class QuotaDefaultsTest(test.TestCase):
         req.headers['content-type'] = 'application/json'
         req.environ['cinder.context'] = nonadmin_ctx
         resp = req.get_response(app())
-        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(resp.status_int, 200)
         body = jsonutils.loads(resp.body)
         self.assertEquals(body['quota_default'],
                           {'resource': 'volumes', 'limit': 1})
+
+    def test_update(self):
+        ctx = context.RequestContext('admin', 'fake', True)
+        quota_default = db.quota_default_create(ctx, 'volumes', 1)
+        req = webob.Request.blank('/v2/fake/os-quota-defaults/volumes')
+        req.method = 'PUT'
+        req.headers['content-type'] = 'application/json'
+        req.environ['cinder.context'] = ctx
+        body = {'quota_default': {'limit': 42}}
+        req.body = jsonutils.dumps(body)
+        resp = req.get_response(app())
+        self.assertEquals(resp.status_int, 200)
+        body = jsonutils.loads(resp.body)
+        self.assertEquals(body['quota_default'],
+                          {'resource': 'volumes', 'limit': 42})
+        quota_default = db.quota_default_get(ctx, 'volumes')
+        self.assertEquals(quota_default['hard_limit'], 42)
+
+    def test_update_create(self):
+        ctx = context.RequestContext('admin', 'fake', True)
+        self.assertRaises(exception.QuotaDefaultNotFound,
+                          db.quota_default_get, ctx, 'volumes')
+        req = webob.Request.blank('/v2/fake/os-quota-defaults/volumes')
+        req.method = 'PUT'
+        req.headers['content-type'] = 'application/json'
+        req.environ['cinder.context'] = ctx
+        body = {'quota_default': {'limit': 42}}
+        req.body = jsonutils.dumps(body)
+        resp = req.get_response(app())
+        self.assertEquals(resp.status_int, 200)
+        body = jsonutils.loads(resp.body)
+        self.assertEquals(body['quota_default'],
+                          {'resource': 'volumes', 'limit': 42})
+        quota_default = db.quota_default_get(ctx, 'volumes')
+        self.assertEquals(quota_default['hard_limit'], 42)
