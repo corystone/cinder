@@ -22,6 +22,7 @@ import datetime
 
 from oslo.config import cfg
 
+from cinder import context
 from cinder import db
 from cinder import exception
 from cinder import flags
@@ -531,6 +532,64 @@ class CountableResource(AbsoluteResource):
         self.count = count
 
 
+class VolumeTypeResource(ReservableResource):
+    """ReservableResource for a specific volume type."""
+
+    def __init__(self, part_name, volume_type_name):
+        """
+        Initializes a VolumeTypeResource.
+
+        :param part_name: The kind of resource, i.e., "volumes".
+        :param volume_type_name: The volume type for this resource.
+        """
+
+        try:
+            method = getattr(self, '_sync_%s' % part_name)
+        except AttributeError:
+            raise ValueError('Invalid resource: %s' % part_name)
+
+        name = "%s_%s" % (part_name, volume_type_name)
+        flag = "quota_%s" % name
+        super(VolumeTypeResource, self).__init__(name, method, flag)
+        self.volume_type_name = volume_type_name
+
+    def _sync_snapshots(self, context, project_id, session):
+        """Sync snapshots for this specific volume type."""
+        (snapshots, gigs) = db.snapshot_data_get_for_project(
+            context,
+            project_id,
+            volume_type_name=self.volume_type_name,
+            session=session)
+        return {'snapshots_%s' % self.volume_type_name: snapshots}
+
+    def _sync_volumes(self, context, project_id, session):
+        """Sync volumes for this specific volume type."""
+        (volumes, gigs) = db.volume_data_get_for_project(
+            context,
+            project_id,
+            volume_type_name=self.volume_type_name,
+            session=session)
+        return {'volumes_%s' % self.volume_type_name: volumes}
+
+    def _sync_gigabytes(self, context, project_id, session):
+        """Sync gigabytes for this specific volume type."""
+        key = 'gigabytes_%s' % self.volume_type_name
+        (_junk, vol_gigs) = db.volume_data_get_for_project(
+            context,
+            project_id,
+            volume_type_name=self.volume_type_name,
+            session=session)
+        if FLAGS.no_snapshot_gb_quota:
+            return {key: vol_gigs}
+
+        (_junk, snap_gigs) = db.snapshot_data_get_for_project(
+            context,
+            project_id,
+            volume_type_name=self.volume_type_name,
+            session=session)
+        return {key: vol_gigs + snap_gigs}
+
+
 class QuotaEngine(object):
     """Represent the set of recognized quotas."""
 
@@ -547,7 +606,7 @@ class QuotaEngine(object):
         self._driver = quota_driver_class
 
     def __contains__(self, resource):
-        return resource in self._resources
+        return resource in self.resources
 
     def register_resource(self, resource):
         """Register a resource."""
@@ -576,7 +635,7 @@ class QuotaEngine(object):
         :param context: The request context, for access checks.
         """
 
-        return self._driver.get_defaults(context, self._resources)
+        return self._driver.get_defaults(context, self.resources)
 
     def get_class_quotas(self, context, quota_class, defaults=True):
         """Retrieve the quotas for the given quota class.
@@ -589,7 +648,7 @@ class QuotaEngine(object):
                          resource.
         """
 
-        return self._driver.get_class_quotas(context, self._resources,
+        return self._driver.get_class_quotas(context, self.resources,
                                              quota_class, defaults=defaults)
 
     def get_project_quotas(self, context, project_id, quota_class=None,
@@ -609,7 +668,7 @@ class QuotaEngine(object):
                        will also be returned.
         """
 
-        return self._driver.get_project_quotas(context, self._resources,
+        return self._driver.get_project_quotas(context, self.resources,
                                                project_id,
                                                quota_class=quota_class,
                                                defaults=defaults,
@@ -628,7 +687,7 @@ class QuotaEngine(object):
         """
 
         # Get the resource
-        res = self._resources.get(resource)
+        res = self.resources.get(resource)
         if not res or not hasattr(res, 'count'):
             raise exception.QuotaResourceUnknown(unknown=[resource])
 
@@ -659,7 +718,7 @@ class QuotaEngine(object):
                            common user's tenant.
         """
 
-        return self._driver.limit_check(context, self._resources, values,
+        return self._driver.limit_check(context, self.resources, values,
                                         project_id=project_id)
 
     def reserve(self, context, expire=None, project_id=None, **deltas):
@@ -697,7 +756,7 @@ class QuotaEngine(object):
                            common user's tenant.
         """
 
-        reservations = self._driver.reserve(context, self._resources, deltas,
+        reservations = self._driver.reserve(context, self.resources, deltas,
                                             expire=expire,
                                             project_id=project_id)
 
@@ -770,8 +829,48 @@ class QuotaEngine(object):
         self._driver.expire(context)
 
     @property
+    def resource_names(self):
+        return sorted(self.resources.keys())
+
+    @property
     def resources(self):
-        return sorted(self._resources.keys())
+        return self._resources
+
+
+class VolumeTypeQuotaEngine(QuotaEngine):
+    """Represent the set of all quotas."""
+
+    @property
+    def resources(self):
+        """Fetches all possible quota resources."""
+
+        result = {}
+        # Global quotas.
+        argses = [('volumes', _sync_volumes, 'quota_volumes'),
+                  ('snapshots', _sync_snapshots, 'quota_snapshots'),
+                  ('gigabytes', _sync_gigabytes, 'quota_gigabytes'), ]
+        for args in argses:
+            resource = ReservableResource(*args)
+            result[resource.name] = resource
+
+        # Volume type quotas.
+        volume_types = db.volume_type_get_all(context.get_admin_context())
+        for volume_type_name in volume_types:
+            for part_name in ('volumes', 'gigabytes', 'snapshots'):
+                opt_name = 'quota_%s_%s' % (part_name, volume_type_name)
+                FLAGS.register_opt(cfg.IntOpt(
+                    opt_name,
+                    default=-1,
+                    help='%s limit for %s' % (part_name, volume_type_name)))
+                resource = VolumeTypeResource(part_name, volume_type_name)
+                result[resource.name] = resource
+        return result
+
+    def register_resource(self, resource):
+        raise NotImplementedError(_("Cannot register resource"))
+
+    def register_resources(self, resources):
+        raise NotImplementedError(_("Cannot register resources"))
 
 
 def _sync_volumes(context, project_id, session):
